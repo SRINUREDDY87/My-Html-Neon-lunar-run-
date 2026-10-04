@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Neon Dash — Endless Runner</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:system-ui,Arial,sans-serif;background:#090b14;color:#fff}
+body{display:grid;place-items:center;padding:16px}
+.wrap{width:min(960px,100%);text-align:center}
+h1{margin:0 0 8px;font-size:clamp(28px,6vw,48px)}
+.sub{margin:0 0 14px;color:#b9bfd7}
+.game{position:relative;width:100%;aspect-ratio:16/9;max-height:72vh;overflow:hidden;border-radius:20px;background:linear-gradient(#101938,#251743 58%,#111 58%);box-shadow:0 15px 50px #0008}
+canvas{width:100%;height:100%;display:block;touch-action:none}
+.hud{position:absolute;inset:12px 14px auto;display:flex;justify-content:space-between;font-weight:800;font-size:clamp(15px,3vw,23px);pointer-events:none;text-shadow:0 2px 5px #000}
+.overlay{position:absolute;inset:0;display:grid;place-items:center;background:#05061199;padding:20px}
+.panel{background:#11172beF;border:1px solid #ffffff22;border-radius:18px;padding:24px;max-width:420px}
+.panel h2{margin:0 0 8px;font-size:32px}.panel p{color:#c8cde0}
+button{border:0;border-radius:12px;padding:13px 22px;font-weight:800;font-size:16px;cursor:pointer;background:#fff;color:#111}
+button:active{transform:scale(.97)}
+.controls{display:flex;justify-content:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.controls button{min-width:100px}
+.small{margin-top:10px;color:#858da9;font-size:13px}
+@media(max-width:600px){body{padding:8px}.game{border-radius:14px}.panel{padding:18px}.panel h2{font-size:26px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>⚡ Neon Dash</h1>
+<p class="sub">Jump over obstacles, collect coins, and beat your high score.</p>
+<div class="game" id="game">
+<canvas id="c" aria-label="Endless runner game"></canvas>
+<div class="hud"><span>⭐ <b id="score">0</b></span><span>🪙 <b id="coins">0</b></span><span>🏆 <b id="best">0</b></span></div>
+<div class="overlay" id="overlay">
+<div class="panel">
+<h2>Ready?</h2>
+<p>Tap the game, press Space, or use the JUMP button.</p>
+<button id="start">START RUN</button>
+</div>
+</div>
+</div>
+<div class="controls">
+<button id="jump">⬆️ JUMP</button>
+<button id="restart">🔄 RESTART</button><button id="sound">🔊 SOUND</button>
+</div>
+<div class="small">Keyboard: Space / ↑ • Mobile: tap or JUMP</div>
+</div>
+<script>
+(()=> {
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+
+// Lightweight built-in sound effects using Web Audio (no external audio files needed).
+let audioCtx=null;
+function audioReady(){
+  if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+}
+function sfx(type){
+  if(!soundOn) return;
+  try{
+    audioReady();
+    const now=audioCtx.currentTime, o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    let f1=440,f2=440,d=.10,vol=.045;
+    if(type==='jump'){f1=420;f2=720;d=.13;vol=.055}
+    if(type==='coin'){f1=700;f2=1100;d=.10;vol=.05}
+    if(type==='hit'){f1=180;f2=70;d=.24;vol=.075}
+    if(type==='gameover'){f1=300;f2=80;d=.42;vol=.065}
+    o.type=type==='coin'?'sine':'square';
+    o.frequency.setValueAtTime(f1,now);
+    o.frequency.exponentialRampToValueAtTime(Math.max(40,f2),now+d);
+    g.gain.setValueAtTime(vol,now);
+    g.gain.exponentialRampToValueAtTime(.001,now+d);
+    o.start(now); o.stop(now+d+.02);
+  }catch(e){}
+}
+const scoreEl=document.getElementById('score'),coinsEl=document.getElementById('coins'),bestEl=document.getElementById('best');
+const overlay=document.getElementById('overlay'), start=document.getElementById('start'), jumpBtn=document.getElementById('jump'), restart=document.getElementById('restart'), soundBtn=document.getElementById('sound');
+let soundOn=true;
+let W=960,H=540,dpr=1,running=false,over=false,score=0,coins=0,best=Number(localStorage.getItem('neonDashBest')||0),speed=6,spawn=0,coinSpawn=0,last=0;
+bestEl.textContent=best;
+const player={x:120,y:0,w:42,h:58,vy:0,onGround:true};
+let obstacles=[],coinItems=[],particles=[];
+function resize(){const r=canvas.getBoundingClientRect();dpr=Math.min(devicePixelRatio||1,2);W=r.width;H=r.height;canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);player.x=Math.min(120,W*.18);player.y=ground()-player.h}
+function ground(){return H*.78}
+addEventListener('resize',resize);resize();
+function reset(){score=0;coins=0;speed=6;spawn=0;coinSpawn=0;obstacles=[];coinItems=[];particles=[];player.vy=0;player.onGround=true;player.y=ground()-player.h;scoreEl.textContent=0;coinsEl.textContent=0}
+function startGame(){audioReady();sfx('jump');reset();running=true;over=false;overlay.style.display='none';last=performance.now();requestAnimationFrame(loop)}
+function jump(){if(!running){if(over) startGame(); return} if(player.onGround){player.vy=-15;player.onGround=false;sfx('jump')}}
+function gameOver(){running=false;over=true;sfx('hit');setTimeout(()=>sfx('gameover'),130);best=Math.max(best,Math.floor(score));localStorage.setItem('neonDashBest',best);bestEl.textContent=best;overlay.innerHTML='<div class="panel"><h2>Run Over 💥</h2><p>Score: <b>'+Math.floor(score)+'</b> · Coins: <b>'+coins+'</b></p><button id="again">RUN AGAIN</button></div>';overlay.style.display='grid';document.getElementById('again').onclick=startGame}
+function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function addParticle(x,y){particles.push({x,y,vx:(Math.random()-.5)*3,vy:-Math.random()*3-1,life:1})}
+function draw(){ctx.clearRect(0,0,W,H);
+let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#101b43');g.addColorStop(.58,'#352052');g.addColorStop(.581,'#17131e');g.addColorStop(1,'#09090d');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ctx.fillStyle='#ffffff18';for(let i=0;i<35;i++){let x=(i*83-(score*0.35))%(W+30);if(x<0)x+=W+30;let y=25+(i*47)%230;ctx.fillRect(x,y,2,2)}
+ctx.fillStyle='#25212f';ctx.fillRect(0,ground(),W,H-ground());ctx.strokeStyle='#ffffff22';ctx.lineWidth=3;ctx.setLineDash([22,22]);ctx.lineDashOffset=-score*4;ctx.beginPath();ctx.moveTo(0,ground()+4);ctx.lineTo(W,ground()+4);ctx.stroke();ctx.setLineDash([]);
+for(const c of coinItems){ctx.fillStyle='#ffd84d';ctx.beginPath();ctx.arc(c.x,c.y,10,0,Math.PI*2);ctx.fill();ctx.fillStyle='#8b5b00';ctx.font='bold 12px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('$',c.x,c.y)}
+for(const o of obstacles){ctx.fillStyle='#ff4f72';ctx.beginPath();ctx.roundRect(o.x,o.y,o.w,o.h,8);ctx.fill();ctx.fillStyle='#fff4';ctx.fillRect(o.x+7,o.y+8,o.w-14,7)}
+ctx.fillStyle='#67e8f9';ctx.beginPath();ctx.roundRect(player.x,player.y,player.w,player.h,10);ctx.fill();ctx.fillStyle='#0b1020';ctx.fillRect(player.x+25,player.y+14,7,7);ctx.fillStyle='#fff';ctx.fillRect(player.x+27,player.y+15,3,3);
+for(const p of particles){ctx.globalAlpha=p.life;ctx.fillStyle='#67e8f9';ctx.fillRect(p.x,p.y,4,4)}ctx.globalAlpha=1
+}
+function loop(t){if(!running)return;let dt=Math.min((t-last)/16.67,2);last=t;score+=.18*dt*speed/6;speed=Math.min(13,6+score/180);spawn-=dt;coinSpawn-=dt;
+if(spawn<=0){let h=30+Math.random()*35;obstacles.push({x:W+20,y:ground()-h,w:30+Math.random()*18,h});spawn=55+Math.random()*55/speed*6}
+if(coinSpawn<=0){coinItems.push({x:W+30,y:ground()-90-Math.random()*100});coinSpawn=45+Math.random()*55}
+player.vy+=.75*dt;player.y+=player.vy*dt;if(player.y>=ground()-player.h){player.y=ground()-player.h;player.vy=0;player.onGround=true}
+for(const o of obstacles)o.x-=speed*dt;for(const c of coinItems)c.x-=speed*dt;
+for(const o of obstacles){if(hit(player,o)){gameOver();return}}
+for(let i=coinItems.length-1;i>=0;i--){let c=coinItems[i],box={x:c.x-10,y:c.y-10,w:20,h:20};if(hit(player,box)){coins++;coinsEl.textContent=coins;sfx('coin');for(let k=0;k<8;k++)addParticle(c.x,c.y);coinItems.splice(i,1)}else if(c.x<-30)coinItems.splice(i,1)}
+for(let i=obstacles.length-1;i>=0;i--)if(obstacles[i].x<-60)obstacles.splice(i,1);
+for(let i=particles.length-1;i>=0;i--){let p=particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=.04*dt;if(p.life<=0)particles.splice(i,1)}
+scoreEl.textContent=Math.floor(score);draw();requestAnimationFrame(loop)}
+start.onclick=startGame;jumpBtn.onclick=jump;restart.onclick=startGame;
+soundBtn.onclick=()=>{soundOn=!soundOn;soundBtn.textContent=soundOn?'🔊 SOUND':'🔇 MUTED';if(soundOn){audioReady();sfx('coin')}};
+canvas.addEventListener('pointerdown',e=>{e.preventDefault();jump()});
+addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault();jump()}});
+draw();
+})();
+</script>
+</body>
+</html>
